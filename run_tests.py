@@ -1,10 +1,41 @@
 #!/usr/bin/env python
 """
 测试运行脚本
-检查依赖并提供友好的错误提示
+检查虚拟环境和依赖，并提供友好的错误提示
 """
 import sys
+import os
 import subprocess
+
+
+# 期望的虚拟环境名称
+EXPECTED_ENV = "paper-whisperer"
+
+
+def check_virtual_env():
+    """检查是否在正确的虚拟环境中"""
+    # 检查 CONDA_DEFAULT_ENV
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+    
+    # 检查 VIRTUAL_ENV
+    virtual_env = os.environ.get("VIRTUAL_ENV", "")
+    
+    if conda_env == EXPECTED_ENV:
+        print(f"✅ 当前虚拟环境: {conda_env}")
+        return True
+    elif EXPECTED_ENV in virtual_env:
+        print(f"✅ 当前虚拟环境: {virtual_env}")
+        return True
+    else:
+        current_env = conda_env or virtual_env or "系统 Python"
+        print(f"⚠️  当前环境: {current_env}")
+        print(f"   建议使用虚拟环境: {EXPECTED_ENV}")
+        print()
+        print("请先激活虚拟环境:")
+        print(f"   conda activate {EXPECTED_ENV}")
+        print()
+        return False
+
 
 def check_dependencies():
     """检查必要的依赖"""
@@ -29,8 +60,7 @@ def check_dependencies():
         print("✅ pymilvus 已安装")
         can_run_all = True
     except ImportError:
-        print("⚠️  pymilvus 未安装 - 将无法运行完整测试")
-        print("   提示: 可以切换到 Python 3.10 环境后安装完整依赖")
+        print("⚠️  pymilvus 未安装 - Milvus 相关测试将被跳过")
         can_run_all = False
     
     if missing:
@@ -42,6 +72,7 @@ def check_dependencies():
     
     return True, can_run_all
 
+
 def main():
     """主函数"""
     print("="*60)
@@ -52,12 +83,22 @@ def main():
     # 检查 Python 版本
     py_version = sys.version_info
     print(f"Python 版本: {py_version.major}.{py_version.minor}.{py_version.micro}")
-    
-    if py_version.major == 3 and py_version.minor >= 13:
-        print("⚠️  警告: Python 3.13 可能存在依赖兼容性问题")
-        print("   建议: 使用 Python 3.10 以获得最佳体验")
-    
+    print(f"Python 路径: {sys.executable}")
     print()
+    
+    # 检查虚拟环境
+    env_ok = check_virtual_env()
+    print()
+    
+    if not env_ok:
+        print("="*60)
+        print("📝 激活虚拟环境后重新运行此脚本")
+        print("="*60)
+        # 不强制退出，允许用户继续（可能已手动确认）
+        response = input("是否继续在当前环境运行? [y/N]: ").strip().lower()
+        if response != 'y':
+            return 1
+        print()
     
     # 检查依赖
     has_test_deps, can_run_all = check_dependencies()
@@ -68,31 +109,13 @@ def main():
     print()
     print("="*60)
     
-    if not can_run_all:
-        print("⚠️  由于缺少 pymilvus，无法运行完整测试")
-        print()
-        print("📝 解决方案:")
-        print("1. 切换到 Python 3.10:")
-        print("   conda create -n paperwhisperer python=3.10 -y")
-        print("   conda activate paperwhisperer")
-        print("   pip install -r requirements.txt")
-        print()
-        print("2. 使用 Docker:")
-        print("   docker-compose up -d")
-        print("   docker-compose exec backend pytest test_milvus_service.py -v")
-        print()
-        print("3. 手动安装 pymilvus（可能失败）:")
-        print("   pip install pymilvus==2.3.3")
-        print("="*60)
-        return 1
-    
     # 运行测试
     print("🚀 开始运行测试...")
     print("="*60)
     print()
     
     # 构建 pytest 命令
-    cmd = [sys.executable, "-m", "pytest", "test_milvus_service.py", "-v"]
+    cmd = [sys.executable, "-m", "pytest", "tests/", "-v"]
     
     # 添加命令行参数
     if len(sys.argv) > 1:
@@ -103,6 +126,6 @@ def main():
     
     return result.returncode
 
+
 if __name__ == "__main__":
     sys.exit(main())
-

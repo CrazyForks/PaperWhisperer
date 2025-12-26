@@ -3,10 +3,12 @@
 从 MinerU 返回的内容中提取论文结构和元数据
 """
 import re
+import json
 from typing import Dict, Any, List
 from datetime import datetime
 
 from app.models.schemas import PaperMetadata, PaperSection, PaperStructure
+from app.services.llm_factory import llm_factory
 from app.utils.logger import log
 
 
@@ -32,10 +34,89 @@ class PaperParser:
         
         return re.sub(pattern, replacement, markdown_content)
     
+    # 元数据提取 Prompt 模板
+    METADATA_EXTRACTION_PROMPT = """请从以下学术论文内容中提取元数据信息。
+
+论文内容：
+{content}
+
+请严格按照以下 JSON 格式返回结果，不要添加任何其他文字说明：
+{{
+    "title": "论文标题（如果找不到则返回 null）",
+    "authors": ["作者1", "作者2", "..."]（如果找不到则返回空数组 []），
+    "abstract": "论文摘要内容（如果找不到则返回 null）",
+    "keywords": ["关键词1", "关键词2", "..."]（如果找不到则返回空数组 []）
+}}
+
+注意：
+1. 标题通常出现在论文开头，可能是最大的标题
+2. 作者信息可能包含机构信息，注意提取完整
+3. 摘要通常在 Abstract 或"摘要"标题下
+4. 关键词通常在 Keywords 或"关键词"标题后
+
+请直接返回 JSON，不要有任何前缀或后缀文字。"""
+
     @staticmethod
-    def extract_metadata(markdown_content: str) -> Dict[str, Any]:
+    async def extract_metadata_with_llm(markdown_content: str) -> Dict[str, Any]:
         """
-        从 Markdown 内容中提取元数据
+        使用大模型从 Markdown 内容中提取元数据
+        
+        Args:
+            markdown_content: Markdown 格式的论文内容
+            
+        Returns:
+            元数据字典
+        """
+        # 只取前 5000 字符，节省 token
+        content_for_llm = markdown_content[:5000]
+        
+        prompt = PaperParser.METADATA_EXTRACTION_PROMPT.format(content=content_for_llm)
+        
+        messages = [
+            {"role": "system", "content": "你是专业的学术论文分析专家，擅长从论文中提取结构化信息。请始终返回有效的 JSON 格式。"},
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            result = await llm_factory.chat(
+                messages=messages,
+                temperature=0.1,  # 低温度确保稳定输出
+                max_tokens=1000,
+                stream=False
+            )
+            
+            # 清理结果，提取 JSON 部分
+            result = result.strip()
+            
+            # 尝试处理可能被 markdown 代码块包裹的情况
+            if result.startswith("```"):
+                # 移除 markdown 代码块标记
+                lines = result.split('\n')
+                result = '\n'.join(lines[1:-1] if lines[-1].strip() == '```' else lines[1:])
+                result = result.strip()
+            
+            # 解析 JSON
+            metadata = json.loads(result)
+            
+            # 确保返回的格式正确
+            return {
+                "title": metadata.get("title"),
+                "authors": metadata.get("authors", []) or [],
+                "abstract": metadata.get("abstract"),
+                "keywords": metadata.get("keywords", []) or []
+            }
+            
+        except json.JSONDecodeError as e:
+            log.warning(f"LLM 返回的内容无法解析为 JSON: {e}, 原始内容: {result[:200]}")
+            raise
+        except Exception as e:
+            log.error(f"使用 LLM 提取元数据失败: {e}")
+            raise
+    
+    @staticmethod
+    def _extract_metadata_regex(markdown_content: str) -> Dict[str, Any]:
+        """
+        使用正则表达式从 Markdown 内容中提取元数据（备用方法）
         
         Args:
             markdown_content: Markdown 格式的论文内容
@@ -143,7 +224,7 @@ class PaperParser:
         return sections
     
     @staticmethod
-    def parse_result(paper_id: str, mineru_result: Dict[str, Any]) -> PaperStructure:
+    async def parse_result(paper_id: str, mineru_result: Dict[str, Any]) -> PaperStructure:
         """
         解析 MinerU 返回的结果，生成论文结构
         
@@ -166,8 +247,14 @@ class PaperParser:
             # 替换图片路径为 API 路径
             markdown_content = PaperParser.replace_image_paths(markdown_content, paper_id)
             
-            # 提取元数据
-            metadata_dict = PaperParser.extract_metadata(markdown_content)
+            # 使用 LLM 提取元数据，失败时回退到正则方法
+            try:
+                log.info(f"使用 LLM 提取论文元数据: {paper_id}")
+                metadata_dict = await PaperParser.extract_metadata_with_llm(markdown_content)
+                log.info(f"LLM 元数据提取成功: {paper_id}")
+            except Exception as e:
+                log.warning(f"LLM 提取元数据失败，回退到正则方法: {e}")
+                metadata_dict = PaperParser._extract_metadata_regex(markdown_content)
             
             metadata = PaperMetadata(
                 paper_id=paper_id,

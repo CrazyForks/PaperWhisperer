@@ -42,7 +42,7 @@ async def process_paper_background(task_id: str, file_id: str, file_path, is_url
         task_status[task_id]["progress"] = 50
         
         # 2. 解析论文结构
-        paper_structure = paper_parser.parse_result(file_id, mineru_result)
+        paper_structure = await paper_parser.parse_result(file_id, mineru_result)
         
         # 3. 保存解析内容
         await FileManager.save_parsed_content(

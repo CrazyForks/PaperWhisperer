@@ -119,7 +119,7 @@ onMounted(() => {
   if (savedTheme) {
     isDark.value = savedTheme === 'dark'
   } else {
-    isDark.value = prefersDark
+    isDark.value = false  // 默认明亮模式
   }
   
   applyTheme()

@@ -10,16 +10,6 @@
       </div>
 
       <div class="relative container mx-auto px-4 py-16 md:py-24">
-        <!-- Header Actions -->
-        <div class="flex justify-end mb-8">
-          <button @click="router.push('/history')" class="btn btn-ghost btn-sm rounded-xl gap-2 font-medium">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            查看历史论文
-          </button>
-        </div>
-
         <!-- Hero Content -->
         <div class="text-center max-w-3xl mx-auto">
           <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-extrabold mb-6 bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent">

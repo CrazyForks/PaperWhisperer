@@ -3,12 +3,23 @@ Milvus 向量服务测试
 测试 MilvusService 的各项功能
 """
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
-from typing import List, Dict, Any
+from unittest.mock import Mock, patch
 import json
 
-from app.services.milvus_service import MilvusService
+# 检查 pymilvus 是否可用
+try:
+    from app.services.milvus_service import MilvusService
+    PYMILVUS_AVAILABLE = True
+except ImportError:
+    PYMILVUS_AVAILABLE = False
+    MilvusService = None
+
+
+# 如果 pymilvus 不可用，跳过所有测试
+pytestmark = pytest.mark.skipif(
+    not PYMILVUS_AVAILABLE,
+    reason="pymilvus 未安装，跳过 Milvus 相关测试"
+)
 
 
 class TestMilvusService:
@@ -111,7 +122,7 @@ class TestMilvusService:
         with patch('app.services.milvus_service.connections'), \
              patch('app.services.milvus_service.utility') as mock_utility, \
              patch('app.services.milvus_service.Collection', return_value=mock_collection), \
-             patch('app.services.milvus_service.CollectionSchema') as mock_schema:
+             patch('app.services.milvus_service.CollectionSchema'):
             
             mock_utility.has_collection.return_value = False
             
@@ -224,7 +235,7 @@ class TestMilvusService:
         query_embedding = [0.5] * 1536
         
         with patch('app.services.milvus_service.connections'):
-            results = await service.search(
+            await service.search(
                 query_embedding=query_embedding,
                 top_k=5,
                 paper_id="paper_123"
@@ -425,35 +436,14 @@ class TestMilvusServiceIntegration:
             # 7. 断开连接
             await service.disconnect()
             
-            print("✅ 集成测试通过")
-            
         except Exception as e:
-            print(f"❌ 集成测试失败: {e}")
-            print("提示: 确保 Milvus 实例正在运行且配置正确")
             pytest.skip(f"跳过集成测试: {e}")
 
 
+@pytest.mark.skipif(not PYMILVUS_AVAILABLE, reason="pymilvus 未安装")
 def test_module_imports():
     """测试 22: 模块导入"""
     from app.services.milvus_service import milvus_service, MilvusService
     
     assert milvus_service is not None
     assert isinstance(milvus_service, MilvusService)
-
-
-if __name__ == "__main__":
-    """直接运行测试"""
-    import sys
-    
-    print("="*60)
-    print("Milvus 服务测试")
-    print("="*60)
-    print("\n运行单元测试（不需要 Milvus 实例）...")
-    print("使用命令: pytest test_milvus_service.py -v")
-    print("\n运行集成测试（需要 Milvus 实例）...")
-    print("使用命令: pytest test_milvus_service.py -v -m integration")
-    print("="*60)
-    
-    # 运行 pytest
-    pytest.main([__file__, "-v", "--tb=short"])
-
