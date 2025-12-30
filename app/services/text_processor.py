@@ -184,6 +184,37 @@ class TextProcessor:
         
         return overlap_chunk
     
+    def _build_section_hierarchy(self, sections) -> List[Dict[str, Any]]:
+        """
+        构建章节层级结构
+        
+        Args:
+            sections: 论文章节列表
+            
+        Returns:
+            章节层级结构列表
+        """
+        hierarchy = []
+        for section in sections:
+            hierarchy.append({
+                "title": section.title,
+                "level": section.level,
+                "section_id": section.section_id
+            })
+        return hierarchy
+    
+    def _get_section_titles(self, sections) -> List[str]:
+        """
+        获取所有章节标题列表
+        
+        Args:
+            sections: 论文章节列表
+            
+        Returns:
+            章节标题列表
+        """
+        return [section.title for section in sections]
+    
     def create_chunks_from_paper(
         self,
         paper: PaperStructure,
@@ -201,6 +232,10 @@ class TextProcessor:
         """
         chunks = []
         chunk_id = 0
+        
+        # 预先构建章节标题列表和层级结构（用于 Agent 意图识别）
+        section_titles = self._get_section_titles(paper.sections) if paper.sections else []
+        section_hierarchy = self._build_section_hierarchy(paper.sections) if paper.sections else []
         
         if preserve_sections and paper.sections:
             # 按章节分块
@@ -223,7 +258,10 @@ class TextProcessor:
                             "section_title": section.title,
                             "section_id": section.section_id,
                             "section_level": section.level,
-                            "chunk_index": chunk_id
+                            "chunk_index": chunk_id,
+                            # 新增：完整章节标题列表和层级结构
+                            "section_titles": section_titles,
+                            "section_hierarchy": section_hierarchy
                         }
                     )
                     chunks.append(chunk)
@@ -239,7 +277,10 @@ class TextProcessor:
                     paper_id=paper.paper_id,
                     text=chunk_text,
                     metadata={
-                        "chunk_index": i
+                        "chunk_index": i,
+                        # 新增：完整章节标题列表和层级结构
+                        "section_titles": section_titles,
+                        "section_hierarchy": section_hierarchy
                     }
                 )
                 chunks.append(chunk)

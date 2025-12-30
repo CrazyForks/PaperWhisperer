@@ -2,10 +2,10 @@
 论文翻译服务
 提供高质量的学术论文翻译
 """
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import asyncio
 
-from app.models.schemas import PaperStructure, TranslationSegment, TranslationResult, TaskStatus
+from app.models.schemas import PaperStructure, PaperSection, TranslationSegment, TranslationResult, TaskStatus
 from app.services.llm_factory import llm_factory
 from app.utils.logger import log
 from datetime import datetime
@@ -13,6 +13,19 @@ from datetime import datetime
 
 class TranslationService:
     """翻译服务"""
+    
+    # 需要跳过翻译的章节标题关键词（遇到这些章节后，后续所有章节都跳过）
+    STOP_SECTIONS = [
+        'references', 'bibliography', '参考文献'
+    ]
+    
+    # 需要跳过但不影响后续章节的关键词
+    SKIP_SECTIONS = [
+        'acknowledgments', 'acknowledgements', '致谢'
+    ]
+    
+    # 并发限制
+    MAX_CONCURRENT_TRANSLATIONS = 10
     
     # 翻译 Prompt 模板
     TRANSLATION_PROMPT = """你是一位专业的学术论文翻译专家。请将以下{source_lang}学术论文文本翻译成{target_lang}。
@@ -41,6 +54,74 @@ class TranslationService:
 {next_context}
 
 请根据上下文翻译当前文本，确保术语和表达的连贯性。只返回当前文本的翻译，不要翻译上下文部分。"""
+    
+    def _should_stop_at_section(self, title: str) -> bool:
+        """
+        检查是否应该在此章节停止翻译（后续章节都不翻译）
+        
+        Args:
+            title: 章节标题
+            
+        Returns:
+            是否应该停止
+        """
+        title_lower = title.lower().strip()
+        return any(stop in title_lower for stop in self.STOP_SECTIONS)
+    
+    def _should_skip_section(self, title: str) -> bool:
+        """
+        检查是否应该跳过此章节（但继续翻译后续章节）
+        
+        Args:
+            title: 章节标题
+            
+        Returns:
+            是否应该跳过
+        """
+        title_lower = title.lower().strip()
+        return any(skip in title_lower for skip in self.SKIP_SECTIONS)
+    
+    def _filter_sections(self, sections: List[PaperSection]) -> Tuple[List[PaperSection], int]:
+        """
+        过滤需要翻译的章节
+        
+        Args:
+            sections: 所有章节列表
+            
+        Returns:
+            (需要翻译的章节列表, 被跳过的章节数)
+        """
+        filtered = []
+        skipped_count = 0
+        stop_found = False
+        
+        for section in sections:
+            # 如果已经遇到了停止标记，跳过后续所有章节
+            if stop_found:
+                skipped_count += 1
+                continue
+            
+            # 检查是否是停止章节
+            if self._should_stop_at_section(section.title):
+                log.info(f"遇到 References 章节，停止翻译后续内容: {section.title}")
+                stop_found = True
+                skipped_count += 1
+                continue
+            
+            # 检查是否是需要跳过的章节
+            if self._should_skip_section(section.title):
+                log.info(f"跳过章节: {section.title}")
+                skipped_count += 1
+                continue
+            
+            # 跳过空内容的章节
+            if not section.content or not section.content.strip():
+                skipped_count += 1
+                continue
+            
+            filtered.append(section)
+        
+        return filtered, skipped_count
     
     async def translate_text(
         self,
@@ -98,6 +179,55 @@ class TranslationService:
             log.error(f"翻译失败: {e}")
             raise
     
+    async def _translate_section(
+        self,
+        section: PaperSection,
+        source_lang: str,
+        target_lang: str,
+        provider: Optional[str]
+    ) -> List[TranslationSegment]:
+        """
+        翻译单个章节
+        
+        Args:
+            section: 章节对象
+            source_lang: 源语言
+            target_lang: 目标语言
+            provider: LLM 提供商
+            
+        Returns:
+            翻译片段列表
+        """
+        # 如果章节内容为空，直接返回空列表，防止 LLM 幻觉
+        if not section.content or not section.content.strip():
+            log.info(f"跳过空内容章节: {section.title}")
+            return []
+        
+        # 如果章节内容太长，需要分段
+        if len(section.content) > 3000:  # 字符数限制
+            return await self._translate_long_section(
+                section.content,
+                section.title,
+                source_lang,
+                target_lang,
+                provider
+            )
+        else:
+            # 翻译整个章节
+            translated = await self.translate_text(
+                text=section.content,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                provider=provider
+            )
+            
+            segment = TranslationSegment(
+                original=section.content,
+                translated=translated,
+                section_title=section.title
+            )
+            return [segment]
+    
     async def translate_paper(
         self,
         paper: PaperStructure,
@@ -107,7 +237,7 @@ class TranslationService:
         translate_by_section: bool = True
     ) -> TranslationResult:
         """
-        翻译整篇论文
+        翻译整篇论文（并行执行）
         
         Args:
             paper: 论文结构
@@ -119,44 +249,66 @@ class TranslationService:
         Returns:
             翻译结果
         """
-        log.info(f"开始翻译论文: {paper.paper_id}, 章节数: {len(paper.sections)}")
+        log.info(f"开始翻译论文: {paper.paper_id}, 原始章节数: {len(paper.sections)}")
         
         segments: List[TranslationSegment] = []
         
         try:
             if translate_by_section and paper.sections:
-                # 按章节翻译
-                for i, section in enumerate(paper.sections):
-                    log.info(f"翻译章节 {i+1}/{len(paper.sections)}: {section.title}")
-                    
-                    # 如果章节内容太长，需要分段
-                    if len(section.content) > 3000:  # 字符数限制
-                        subsegments = await self._translate_long_section(
-                            section.content,
-                            section.title,
-                            source_lang,
-                            target_lang,
-                            provider
-                        )
-                        segments.extend(subsegments)
-                    else:
-                        # 翻译整个章节
-                        translated = await self.translate_text(
-                            text=section.content,
-                            source_lang=source_lang,
-                            target_lang=target_lang,
-                            provider=provider
-                        )
-                        
-                        segment = TranslationSegment(
-                            original=section.content,
-                            translated=translated,
-                            section_title=section.title
-                        )
-                        segments.append(segment)
-                    
-                    # 避免 API 限流
-                    await asyncio.sleep(0.5)
+                # 过滤需要翻译的章节
+                sections_to_translate, skipped_count = self._filter_sections(paper.sections)
+                log.info(f"过滤后需要翻译的章节数: {len(sections_to_translate)}, 跳过章节数: {skipped_count}")
+                
+                if not sections_to_translate:
+                    log.warning("没有需要翻译的章节")
+                    return TranslationResult(
+                        paper_id=paper.paper_id,
+                        segments=[],
+                        status=TaskStatus.COMPLETED,
+                        created_at=datetime.now()
+                    )
+                
+                # 使用信号量限制并发数
+                semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TRANSLATIONS)
+                
+                async def translate_with_limit(idx: int, section: PaperSection) -> Tuple[int, List[TranslationSegment]]:
+                    """带并发限制的翻译任务"""
+                    async with semaphore:
+                        log.info(f"开始翻译章节 {idx+1}/{len(sections_to_translate)}: {section.title}")
+                        try:
+                            result = await self._translate_section(
+                                section,
+                                source_lang,
+                                target_lang,
+                                provider
+                            )
+                            log.info(f"完成翻译章节 {idx+1}/{len(sections_to_translate)}: {section.title}")
+                            return (idx, result)
+                        except Exception as e:
+                            log.error(f"章节翻译失败 {section.title}: {e}")
+                            # 返回空列表，继续其他翻译
+                            return (idx, [])
+                
+                # 创建所有翻译任务并并行执行
+                tasks = [
+                    translate_with_limit(idx, section) 
+                    for idx, section in enumerate(sections_to_translate)
+                ]
+                
+                # 并行执行所有翻译任务
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # 按原始顺序排序结果
+                sorted_results = sorted(
+                    [(idx, segs) for idx, segs in results if isinstance((idx, segs), tuple)],
+                    key=lambda x: x[0]
+                )
+                
+                # 合并所有翻译片段
+                for idx, segs in sorted_results:
+                    if segs:
+                        segments.extend(segs)
+                
             else:
                 # 全文翻译（分段处理）
                 full_text = paper.full_content
@@ -198,7 +350,7 @@ class TranslationService:
         provider: Optional[str]
     ) -> List[TranslationSegment]:
         """
-        翻译长文本（分段处理，保留上下文）
+        翻译长文本（分段并行处理，保留上下文）
         
         Args:
             text: 文本内容
@@ -213,35 +365,47 @@ class TranslationService:
         # 按段落分割
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
         
-        segments = []
+        if not paragraphs:
+            return []
+        
         context_size = 200  # 上下文字符数
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TRANSLATIONS)
         
-        for i, para in enumerate(paragraphs):
-            # 获取上下文
-            prev_context = paragraphs[i-1][-context_size:] if i > 0 else None
-            next_context = paragraphs[i+1][:context_size] if i < len(paragraphs) - 1 else None
-            
-            # 翻译段落
-            translated = await self.translate_text(
-                text=para,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                provider=provider,
-                prev_context=prev_context,
-                next_context=next_context
-            )
-            
-            segment = TranslationSegment(
-                original=para,
-                translated=translated,
-                section_title=section_title
-            )
-            segments.append(segment)
-            
-            # 避免限流
-            await asyncio.sleep(0.3)
+        async def translate_paragraph(idx: int, para: str) -> Tuple[int, TranslationSegment]:
+            """带并发限制的段落翻译"""
+            async with semaphore:
+                # 获取上下文
+                prev_context = paragraphs[idx-1][-context_size:] if idx > 0 else None
+                next_context = paragraphs[idx+1][:context_size] if idx < len(paragraphs) - 1 else None
+                
+                # 翻译段落
+                translated = await self.translate_text(
+                    text=para,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    provider=provider,
+                    prev_context=prev_context,
+                    next_context=next_context
+                )
+                
+                segment = TranslationSegment(
+                    original=para,
+                    translated=translated,
+                    section_title=section_title
+                )
+                return (idx, segment)
         
-        return segments
+        # 创建所有翻译任务并并行执行
+        tasks = [translate_paragraph(idx, para) for idx, para in enumerate(paragraphs)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 按原始顺序排序结果
+        sorted_results = sorted(
+            [(idx, seg) for idx, seg in results if isinstance((idx, seg), tuple) and seg],
+            key=lambda x: x[0]
+        )
+        
+        return [seg for idx, seg in sorted_results]
     
     async def translate_abstract(
         self,
@@ -272,4 +436,3 @@ class TranslationService:
 
 # 全局服务实例
 translation_service = TranslationService()
-

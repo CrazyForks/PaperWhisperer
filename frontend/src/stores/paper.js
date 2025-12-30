@@ -37,7 +37,9 @@ export const usePaperStore = defineStore('paper', () => {
       const data = await api.getTranslation(paperId)
       translation.value = data
     } catch (e) {
-      console.error('加载翻译失败:', e)
+      // 翻译不存在或加载失败时，清空翻译状态
+      translation.value = null
+      console.log('该论文暂无翻译')
     }
   }
 
@@ -46,7 +48,9 @@ export const usePaperStore = defineStore('paper', () => {
       const data = await api.getSummary(paperId)
       summary.value = data
     } catch (e) {
-      console.error('加载摘要失败:', e)
+      // 摘要不存在或加载失败时，清空摘要状态
+      summary.value = null
+      console.log('该论文暂无摘要')
     }
   }
 

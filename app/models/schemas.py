@@ -2,7 +2,7 @@
 Pydantic 数据模型定义
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -171,4 +171,46 @@ class EmbeddingResult(BaseModel):
     chunk_id: str
     embedding: List[float]
     dimension: int
+
+
+# ========== Agent 相关模型 ==========
+
+class IntentCategory(str, Enum):
+    """意图类别"""
+    CONTRIBUTION = "contribution"
+    METHOD = "method"
+    EXPERIMENT = "experiment"
+    COMPARISON = "comparison"
+    MOTIVATION = "motivation"
+    IMPLEMENTATION = "implementation"
+    GENERAL = "general"  # 通用问题
+
+
+class IntentAnalysisResult(BaseModel):
+    """意图分析结果"""
+    category: IntentCategory
+    target_sections: List[str] = Field(default_factory=list, description="目标章节列表")
+    keywords: List[str] = Field(default_factory=list, description="检索关键词")
+    reasoning: str = Field(default="", description="分析推理过程")
+
+
+class CompletenessEvaluation(BaseModel):
+    """信息完备性评估结果"""
+    is_sufficient: bool = Field(description="信息是否足够回答问题")
+    missing_info: Optional[str] = Field(default=None, description="缺失信息描述")
+    suggested_keywords: List[str] = Field(default_factory=list, description="建议补充检索的关键词")
+    reasoning: str = Field(default="", description="评估推理过程")
+
+
+class AgentStreamEvent(BaseModel):
+    """Agent 流式事件"""
+    type: str = Field(description="事件类型: thinking/retrieval/evaluation/content/sources/done/error")
+    content: Any = Field(description="事件内容")
+
+
+class AgentChatRequest(BaseModel):
+    """Agent 对话请求"""
+    message: str
+    session_id: Optional[str] = None
+    provider: Optional[LLMProvider] = None
 

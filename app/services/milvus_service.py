@@ -122,7 +122,7 @@ class MilvusService:
             FieldSchema(name="paper_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=10000),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dimension),
-            FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=5000)  # JSON string
+            FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535)  # JSON string
         ]
         
         schema = CollectionSchema(
@@ -240,7 +240,8 @@ class MilvusService:
         self,
         query_embedding: List[float],
         top_k: int = 5,
-        paper_id: Optional[str] = None
+        paper_id: Optional[str] = None,
+        section_filter: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         向量检索（带重试机制）
@@ -249,6 +250,7 @@ class MilvusService:
             query_embedding: 查询向量
             top_k: 返回结果数量
             paper_id: 可选的论文ID过滤
+            section_filter: 可选的章节标题过滤列表
             
         Returns:
             检索结果列表
@@ -264,8 +266,14 @@ class MilvusService:
             "params": {"ef": 100}
         }
         
-        # 表达式过滤（如果指定了 paper_id）
-        expr = f'paper_id == "{paper_id}"' if paper_id else None
+        # 构建过滤表达式
+        expr_parts = []
+        if paper_id:
+            expr_parts.append(f'paper_id == "{paper_id}"')
+        
+        # 注意：section_filter 需要在 metadata JSON 中过滤，Milvus 不直接支持
+        # 这里我们只使用 paper_id 过滤，section 过滤在结果后处理中进行
+        expr = " and ".join(expr_parts) if expr_parts else None
         
         last_error = None
         for attempt in range(self.MAX_RETRIES):

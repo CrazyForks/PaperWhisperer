@@ -109,7 +109,7 @@ const api = {
     return client.get(`/summary/${paperId}`)
   },
 
-  // 对话
+  // 对话（普通 RAG）
   createChatSession(paperId) {
     return client.post(`/chat/new_session/${paperId}`)
   },
@@ -124,6 +124,34 @@ const api = {
 
   deleteSession(sessionId) {
     return client.delete(`/chat/session/${sessionId}`)
+  },
+
+  // Agent 智能对话（带推理过程）
+  createAgentSession(paperId) {
+    return client.post(`/chat/agent/new_session/${paperId}`)
+  },
+
+  /**
+   * Agent 流式对话
+   * 返回 EventSource 事件类型：thinking, retrieval, evaluation, content, sources, done, error
+   */
+  agentChatStream(paperId, data) {
+    const url = `${API_BASE}/chat/agent/${paperId}`
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+  },
+
+  getAgentHistory(sessionId) {
+    return client.get(`/chat/agent/history/${sessionId}`)
+  },
+
+  deleteAgentSession(sessionId) {
+    return client.delete(`/chat/agent/session/${sessionId}`)
   }
 }
 

@@ -110,6 +110,20 @@ class Settings(BaseSettings):
         description="检索返回的 Top K 结果数"
     )
     
+    # Agent Configuration
+    agent_max_retrieval_rounds: int = Field(
+        default_factory=lambda: int(os.getenv("AGENT_MAX_RETRIEVAL_ROUNDS", "2")),
+        description="Agent 最大检索轮次"
+    )
+    agent_intent_temperature: float = Field(
+        default_factory=lambda: float(os.getenv("AGENT_INTENT_TEMPERATURE", "0.3")),
+        description="Agent 意图识别温度"
+    )
+    agent_evaluation_temperature: float = Field(
+        default_factory=lambda: float(os.getenv("AGENT_EVALUATION_TEMPERATURE", "0.2")),
+        description="Agent 完备性评估温度"
+    )
+    
     # Paths - 基于环境变量或使用默认路径
     base_dir: Path = Field(
         default_factory=lambda: Path(os.getenv("BASE_DIR", str(Path(__file__).parent.parent))),

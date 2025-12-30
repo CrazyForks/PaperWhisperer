@@ -94,6 +94,7 @@ class VectorizationService:
         query_text: str,
         paper_id: Optional[str] = None,
         top_k: int = 5,
+        section_filter: Optional[List[str]] = None,
         embedding_provider: Optional[str] = None,
         embedding_model: Optional[str] = None
     ) -> List[dict]:
@@ -104,6 +105,7 @@ class VectorizationService:
             query_text: 查询文本
             paper_id: 可选的论文ID限制
             top_k: 返回结果数量
+            section_filter: 可选的章节标题过滤列表
             embedding_provider: Embedding 提供商
             embedding_model: Embedding 模型
             
@@ -118,15 +120,92 @@ class VectorizationService:
         
         query_embedding = await embedding_service.embed_text(query_text)
         
-        # 搜索相似向量
+        # 搜索相似向量（增加 top_k 以便后续过滤）
+        search_top_k = top_k * 2 if section_filter else top_k
+        
         results = await milvus_service.search(
             query_embedding=query_embedding,
-            top_k=top_k,
+            top_k=search_top_k,
             paper_id=paper_id
         )
         
+        # 如果有章节过滤，进行后处理过滤
+        if section_filter and results:
+            filtered_results = []
+            section_filter_lower = [s.lower() for s in section_filter]
+            
+            for result in results:
+                section_title = result.get("metadata", {}).get("section_title", "").lower()
+                # 模糊匹配：检查章节标题是否包含过滤词
+                if any(filter_term in section_title or section_title in filter_term 
+                       for filter_term in section_filter_lower):
+                    filtered_results.append(result)
+                
+                if len(filtered_results) >= top_k:
+                    break
+            
+            # 如果过滤后结果太少，补充未过滤的结果
+            if len(filtered_results) < top_k:
+                for result in results:
+                    if result not in filtered_results:
+                        filtered_results.append(result)
+                        if len(filtered_results) >= top_k:
+                            break
+            
+            results = filtered_results[:top_k]
+        else:
+            results = results[:top_k]
+        
         log.info(f"搜索完成: 查询='{query_text[:50]}...', 结果数={len(results)}")
         return results
+    
+    async def search_multi_keywords(
+        self,
+        keywords: List[str],
+        paper_id: Optional[str] = None,
+        top_k: int = 5,
+        section_filter: Optional[List[str]] = None,
+        embedding_provider: Optional[str] = None,
+        embedding_model: Optional[str] = None
+    ) -> List[dict]:
+        """
+        多关键词搜索并合并去重结果
+        
+        Args:
+            keywords: 关键词列表
+            paper_id: 可选的论文ID限制
+            top_k: 每个关键词返回结果数量
+            section_filter: 可选的章节标题过滤列表
+            embedding_provider: Embedding 提供商
+            embedding_model: Embedding 模型
+            
+        Returns:
+            合并去重后的搜索结果列表
+        """
+        all_results = []
+        seen_chunks = set()
+        
+        for keyword in keywords:
+            results = await self.search_similar_chunks(
+                query_text=keyword,
+                paper_id=paper_id,
+                top_k=top_k,
+                section_filter=section_filter,
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model
+            )
+            
+            for result in results:
+                chunk_id = result.get("chunk_id")
+                if chunk_id and chunk_id not in seen_chunks:
+                    seen_chunks.add(chunk_id)
+                    all_results.append(result)
+        
+        # 按相关度排序
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        log.info(f"多关键词搜索完成: 关键词数={len(keywords)}, 去重后结果数={len(all_results)}")
+        return all_results
 
 
 # 全局服务实例

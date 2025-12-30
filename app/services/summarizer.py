@@ -1,6 +1,6 @@
 """
 摘要生成服务
-使用 Map-Reduce 策略生成论文摘要
+直接基于论文内容生成综合摘要
 """
 from typing import List, Dict, Optional
 import asyncio
@@ -30,6 +30,26 @@ class SummarizerService:
 
 章节摘要：
 {section_summaries}
+
+请全面概括论文的：
+1. 研究背景和动机
+2. 核心方法和技术
+3. 主要实验和结果
+4. 贡献和创新点
+5. 局限性和未来工作
+
+综合摘要："""
+
+    # 直接摘要 Prompt（跳过 Map 阶段，直接基于论文内容生成）
+    DIRECT_SUMMARY_PROMPT = """请为以下学术论文生成一篇完整的综合摘要（500-800字）。
+
+论文标题：{title}
+
+论文摘要：
+{abstract}
+
+论文主要内容：
+{content}
 
 请全面概括论文的：
 1. 研究背景和动机
@@ -152,6 +172,56 @@ class SummarizerService:
             
         except Exception as e:
             log.error(f"生成综合摘要失败: {e}")
+            raise
+    
+    async def generate_direct_summary(
+        self,
+        title: str,
+        abstract: str,
+        content: str,
+        provider: Optional[str] = None
+    ) -> str:
+        """
+        直接基于论文内容生成综合摘要（跳过 Map 阶段）
+        
+        Args:
+            title: 论文标题
+            abstract: 论文摘要
+            content: 论文主要内容
+            provider: LLM 提供商
+            
+        Returns:
+            综合摘要
+        """
+        # 限制内容长度
+        max_content_length = 8000
+        if len(content) > max_content_length:
+            content = content[:max_content_length] + "...(内容已截断)"
+        
+        prompt = self.DIRECT_SUMMARY_PROMPT.format(
+            title=title,
+            abstract=abstract or "无摘要",
+            content=content
+        )
+        
+        messages = [
+            {"role": "system", "content": "你是专业的学术论文分析专家。"},
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            result = await llm_factory.chat(
+                messages=messages,
+                provider=provider,
+                temperature=0.5,
+                max_tokens=1500,
+                stream=False
+            )
+            
+            return result.strip()
+            
+        except Exception as e:
+            log.error(f"生成直接摘要失败: {e}")
             raise
     
     async def extract_key_points(
@@ -301,7 +371,7 @@ class SummarizerService:
         summary_type: str = "comprehensive"
     ) -> PaperSummary:
         """
-        生成论文摘要（完整流程）
+        生成论文摘要（优化版：跳过章节摘要，直接生成综合摘要）
         
         Args:
             paper: 论文结构
@@ -314,76 +384,49 @@ class SummarizerService:
         log.info(f"开始生成论文摘要: {paper.paper_id}, 类型: {summary_type}")
         
         try:
-            # Map 阶段：生成各章节摘要
-            section_summaries = []
+            # 提取关键章节内容用于生成摘要
+            # 只提取 Introduction、Methods、Results、Discussion、Conclusion 等关键章节
+            key_section_keywords = [
+                'introduction', 'abstract', 'method', 'approach', 'result', 
+                'experiment', 'discussion', 'conclusion', 'summary',
+                '引言', '介绍', '方法', '结果', '实验', '讨论', '结论', '总结'
+            ]
             
-            if paper.sections:
-                tasks = []
-                for section in paper.sections:
-                    # 跳过太短的章节
-                    if len(section.content) < 100:
-                        continue
-                    
-                    task = self.summarize_section(
-                        section_title=section.title,
-                        section_content=section.content,
-                        provider=provider
-                    )
-                    tasks.append((section.title, task))
-                
-                # 并发执行（但限制并发数避免限流）
-                for i in range(0, len(tasks), 3):  # 每次3个
-                    batch = tasks[i:i+3]
-                    results = await asyncio.gather(*[t[1] for t in batch])
-                    
-                    for (title, _), summary in zip(batch, results):
-                        section_summaries.append(
-                            SectionSummary(section_title=title, summary=summary)
-                        )
-                    
-                    # 避免限流
-                    if i + 3 < len(tasks):
-                        await asyncio.sleep(1)
+            key_content_parts = []
+            for section in paper.sections:
+                title_lower = section.title.lower()
+                # 只提取关键章节或前几个章节
+                is_key_section = any(kw in title_lower for kw in key_section_keywords)
+                if is_key_section and len(section.content) >= 100:
+                    # 每个章节最多取前2000字符
+                    content_preview = section.content[:2000]
+                    key_content_parts.append(f"## {section.title}\n{content_preview}")
             
-            # Reduce 阶段：生成综合摘要
-            summary_texts = [s.summary for s in section_summaries]
-            overall_summary = await self.generate_comprehensive_summary(
+            # 如果没有匹配到关键章节，使用全文的前8000字符
+            if not key_content_parts:
+                combined_content = paper.full_content[:8000] if paper.full_content else ""
+            else:
+                combined_content = "\n\n".join(key_content_parts)
+            
+            # 直接生成综合摘要（跳过 Map 阶段）
+            overall_summary = await self.generate_direct_summary(
                 title=paper.metadata.title or "未知标题",
-                section_summaries=summary_texts,
+                abstract=paper.metadata.abstract or "",
+                content=combined_content,
                 provider=provider
             )
             
             # 提取关键要点
             key_points = await self.extract_key_points(overall_summary, provider=provider)
             
-            # 总结方法（从相关章节提取）
-            methodology_content = ""
-            for section in paper.sections:
-                if any(keyword in section.title.lower() for keyword in ['method', 'approach', '方法', 'algorithm']):
-                    methodology_content += section.content + "\n\n"
-            
-            methodology = ""
-            if methodology_content:
-                methodology = await self.summarize_methodology(methodology_content, provider=provider)
-            
-            # 总结贡献（从摘要或结论提取）
-            contributions_content = paper.metadata.abstract or ""
-            for section in paper.sections:
-                if any(keyword in section.title.lower() for keyword in ['conclusion', 'contribution', '结论', '贡献']):
-                    contributions_content += section.content + "\n\n"
-            
-            contributions = ""
-            if contributions_content:
-                contributions = await self.summarize_contributions(contributions_content, provider=provider)
-            
-            # 构建最终摘要对象
+            # 构建最终摘要对象（不再生成章节摘要、方法总结和贡献总结，大幅提升速度）
             paper_summary = PaperSummary(
                 paper_id=paper.paper_id,
                 overall_summary=overall_summary,
                 key_points=key_points,
-                methodology=methodology if methodology else None,
-                contributions=contributions if contributions else None,
-                section_summaries=section_summaries,
+                methodology=None,
+                contributions=None,
+                section_summaries=[],  # 不再生成章节摘要
                 created_at=datetime.now()
             )
             
