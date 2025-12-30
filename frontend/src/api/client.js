@@ -63,6 +63,11 @@ const api = {
     return client.post('/parse_url', null, { params: { url } })
   },
 
+  // 开始解析已上传的文件
+  startParse(fileId) {
+    return client.post(`/parse/${fileId}`)
+  },
+
   getParseStatus(taskId) {
     return client.get(`/parse_status/${taskId}`)
   },

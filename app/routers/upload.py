@@ -73,13 +73,13 @@ async def process_paper_background(task_id: str, file_id: str, file_path, is_url
         task_status[task_id]["error"] = str(e)
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload")
 async def upload_paper(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...)
 ):
     """
-    上传 PDF 文件并解析
+    上传 PDF 文件（仅保存，不解析）
+    返回 file_id，用户需调用 /parse/{file_id} 触发解析
     """
     # 检查文件类型
     if not file.filename.endswith('.pdf'):
@@ -87,9 +87,10 @@ async def upload_paper(
     
     # 读取文件内容
     content = await file.read()
+    file_size = len(content)
     
-    # 检查文件大小
-    if not FileManager.check_file_size(len(content)):
+    # 检查文件大小（本地存储限制）
+    if not FileManager.check_file_size(file_size):
         raise HTTPException(
             status_code=413,
             detail=f"文件太大，最大支持 {settings.max_upload_size}MB"
@@ -98,9 +99,50 @@ async def upload_paper(
     # 保存文件
     file_id, file_path = await FileManager.save_upload_file(content, file.filename)
     
+    log.info(f"文件上传成功: {file.filename}, file_id={file_id}, size={file_size}")
+    
+    return {
+        "file_id": file_id,
+        "filename": file.filename,
+        "file_size": file_size,
+        "message": "文件上传成功，请点击解析按钮开始解析"
+    }
+
+
+@router.post("/parse/{file_id}", response_model=UploadResponse)
+async def start_parse(
+    file_id: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    开始解析已上传的文件
+    """
+    # 获取文件路径
+    file_path = settings.upload_dir / f"{file_id}.pdf"
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在，请先上传文件")
+    
+    # 检查文件大小是否超过 MinerU 限制
+    file_size = file_path.stat().st_size
+    max_mineru_size = settings.mineru_max_file_size * 1024 * 1024  # 转换为字节
+    
+    if file_size > max_mineru_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件太大（{file_size / 1024 / 1024:.1f}MB），MinerU 解析服务最大支持 {settings.mineru_max_file_size}MB 的文件直接上传。建议使用 URL 方式解析较大的文件。"
+        )
+    
+    # 检查是否已经在处理
+    if file_id in task_status and task_status[file_id]["status"] == TaskStatus.PROCESSING:
+        return UploadResponse(
+            task_id=file_id,
+            status=TaskStatus.PROCESSING,
+            message="该文件正在解析中..."
+        )
+    
     # 创建任务
-    task_id = file_id
-    task_status[task_id] = {
+    task_status[file_id] = {
         "status": TaskStatus.PENDING,
         "progress": 0,
         "paper_id": None,
@@ -111,18 +153,18 @@ async def upload_paper(
     # 后台处理
     background_tasks.add_task(
         process_paper_background,
-        task_id=task_id,
+        task_id=file_id,
         file_id=file_id,
         file_path=file_path,
         is_url=False
     )
     
-    log.info(f"文件上传成功: {file.filename}, task_id={task_id}")
+    log.info(f"开始解析文件: file_id={file_id}")
     
     return UploadResponse(
-        task_id=task_id,
+        task_id=file_id,
         status=TaskStatus.PENDING,
-        message="文件上传成功，正在解析中..."
+        message="解析任务已创建，正在处理中..."
     )
 
 

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
         default_factory=lambda: int(os.getenv("MINERU_TIMEOUT", "600")),
         description="MinerU 超时时间（秒）"
     )
+    mineru_max_file_size: int = Field(
+        default_factory=lambda: int(os.getenv("MINERU_MAX_FILE_SIZE", "10")),
+        description="MinerU 直接上传文件的最大大小（MB），超过此大小建议使用 URL 方式"
+    )
     
     # Milvus Configuration
     milvus_host: str = Field(
