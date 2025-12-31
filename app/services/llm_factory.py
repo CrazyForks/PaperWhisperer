@@ -192,7 +192,7 @@ class LLMFactory:
         messages: List[Dict[str, str]],
         provider: Optional[str] = None,
         model: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: float = 1.3,
         max_tokens: Optional[int] = None,
         stream: bool = False
     ):
