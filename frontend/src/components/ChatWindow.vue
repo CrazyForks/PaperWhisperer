@@ -220,6 +220,13 @@ watch(() => chatStore.agentStatus, () => {
   })
 })
 
+// 监听 agentThinking 变化来自动滚动（推理过程内容增加时）
+watch(() => chatStore.agentThinking, () => {
+  nextTick(() => {
+    scrollToBottom()
+  })
+}, { deep: true })
+
 async function sendMessage() {
   if (!inputMessage.value.trim() || loading.value) return
 
