@@ -28,6 +28,11 @@ _Your personal AI companion for understanding research papers_
 
 ---
 
+## Demo Trial
+https://paper.whisperer.top/
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -44,11 +49,11 @@ git clone https://github.com/cjrzs/PaperWhisperer.git
 # 2. Navigate to project directory
 cd PaperWhisperer
 
-# 3. Start the service
+# 3. Create a .env file and set up your environment following the guidelines provided in env.example.txt
+
+# 4. Start the service
 docker-compose up -d
 ```
-
-🎉 Done! Visit `http://localhost` to get started
 
 ---
 

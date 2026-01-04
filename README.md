@@ -26,6 +26,9 @@
 
 ---
 
+## 试用DEMO
+https://paper.whisperer.top/
+
 ## 🚀 快速开始
 
 ### 前置要求
@@ -42,13 +45,11 @@ git clone https://github.com/cjrzs/PaperWhisperer.git
 # 2. 进入项目目录
 cd PaperWhisperer
 
-# 3. 启动服务
+# 3. 创建.env文件，根据env.example.txt中的指引进行环境配置
+
+# 4. 启动服务
 docker-compose up -d
 ```
-
-🎉 完成！访问 `http://localhost` 即可开始使用
-
----
 
 ## 💡 使用示例
 
