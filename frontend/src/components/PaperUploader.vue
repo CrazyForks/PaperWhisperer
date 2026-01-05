@@ -19,11 +19,31 @@
           @click="submitUrl"
           :disabled="!url || uploading || parsing"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          解析
+          <span v-if="!parsing" class="flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            解析
+          </span>
+          <span v-else class="flex items-center gap-2">
+            <span class="loading loading-spinner loading-sm"></span>
+            解析中...
+          </span>
         </button>
+      </div>
+      
+      <!-- 解析进度（URL方式） -->
+      <div v-if="parsing" class="mt-4">
+        <p class="text-sm text-base-content/70 mb-2">{{ statusMessage }}</p>
+        <div v-if="progress > 0" class="w-full">
+          <div class="h-2 bg-base-200 rounded-full overflow-hidden">
+            <div 
+              class="h-full bg-primary rounded-full transition-all duration-300"
+              :style="{ width: `${progress}%` }"
+            ></div>
+          </div>
+          <p class="text-xs text-base-content/50 mt-1 text-right">{{ progress }}%</p>
+        </div>
       </div>
     </div>
 
@@ -285,9 +305,15 @@ async function pollStatus(taskId) {
       
       if (status.status === 'completed') {
         statusMessage.value = '解析完成！'
-        parsing.value = false
+        progress.value = 100
+        // 清空URL输入框
+        url.value = ''
         uploadedFile.value = null
-        emit('uploaded', status.paper_id)
+        // 短暂延迟后跳转，让用户看到"解析完成"提示
+        setTimeout(() => {
+          parsing.value = false
+          emit('uploaded', status.paper_id)
+        }, 500)
         return
       } else if (status.status === 'failed') {
         error.value = status.error || '解析失败'
