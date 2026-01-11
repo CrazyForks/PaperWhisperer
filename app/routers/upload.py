@@ -44,7 +44,11 @@ async def process_paper_background(task_id: str, file_id: str, file_path, is_url
         # 2. 解析论文结构
         paper_structure = await paper_parser.parse_result(file_id, mineru_result)
         
-        # 3. 保存解析内容
+        # 3. 如果是 URL 解析，保存原始 URL 到元数据
+        if is_url:
+            paper_structure.metadata.source_url = file_path
+        
+        # 4. 保存解析内容
         await FileManager.save_parsed_content(
             file_id,
             {
@@ -266,8 +270,10 @@ async def list_papers():
                 papers.append({
                     "paper_id": json_file.stem,
                     "title": metadata.get("title", "未知标题"),
+                    "title_cn": metadata.get("title_cn"),
                     "authors": metadata.get("authors", []),
                     "abstract": metadata.get("abstract", ""),
+                    "source_url": metadata.get("source_url"),
                     "created_at": json_file.stat().st_ctime,
                     "modified_at": json_file.stat().st_mtime
                 })
@@ -290,13 +296,17 @@ async def delete_paper(paper_id: str):
     删除论文
     """
     # 删除向量数据
-    count = await vectorization_service.delete_paper_vectors(paper_id)
+    vectors_count = await vectorization_service.delete_paper_vectors(paper_id)
     
-    log.info(f"删除论文: {paper_id}, 向量数: {count}")
+    # 删除相关文件（解析结果、PDF、翻译、摘要）
+    file_result = FileManager.delete_paper_files(paper_id)
+    
+    log.info(f"删除论文: {paper_id}, 向量数: {vectors_count}, 文件数: {file_result['deleted_count']}")
     
     return {
         "message": "论文删除成功",
         "paper_id": paper_id,
-        "vectors_deleted": count
+        "vectors_deleted": vectors_count,
+        "files_deleted": file_result["deleted_count"]
     }
 

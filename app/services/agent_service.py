@@ -353,22 +353,30 @@ class AgentOrchestrator:
         
         try:
             # === 第1步：意图识别 ===
+            log.info("发送第一个 thinking 事件")
             yield AgentStreamEvent(type="thinking", content="正在分析问题意图...")
+            log.info("第一个 thinking 事件已发送")
             
             # 获取章节标题列表
+            log.info("获取章节标题列表")
             section_titles = await self._get_section_titles(paper_id)
+            log.info(f"获取到 {len(section_titles)} 个章节标题")
             
+            log.info("开始意图分析")
             intent_result = await IntentAnalyzer.analyze(
                 question=question,
                 section_titles=section_titles,
                 conversation_history=session.messages,
                 provider=provider
             )
+            log.info(f"意图分析完成: category={intent_result.category.value}")
             
+            log.info("发送意图识别完成事件")
             yield AgentStreamEvent(
                 type="thinking",
                 content=f"意图识别完成:\n- 类别: {intent_result.category.value}\n- 目标章节: {', '.join(intent_result.target_sections) or '全文'}\n- 关键词: {', '.join(intent_result.keywords)}\n- 推理: {intent_result.reasoning}"
             )
+            log.info("意图识别完成事件已发送")
             
             # === 第2步：RAG 检索循环 ===
             all_results = []
@@ -390,8 +398,13 @@ class AgentOrchestrator:
                     content=f"第 {current_round} 轮检索 (关键词: {', '.join(search_keywords)})"
                 )
                 
-                # 执行多关键词检索
-                for keyword in search_keywords[:3]:  # 限制关键词数量
+                # 执行多关键词检索，每个关键词发送状态更新保持连接活跃
+                keywords_to_search = search_keywords[:3]  # 限制关键词数量
+                for i, keyword in enumerate(keywords_to_search):
+                    yield AgentStreamEvent(
+                        type="retrieval",
+                        content=f"正在检索关键词 ({i+1}/{len(keywords_to_search)}): {keyword[:30]}..."
+                    )
                     results = await vectorization_service.search_similar_chunks(
                         query_text=keyword,
                         paper_id=paper_id,

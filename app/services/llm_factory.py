@@ -5,6 +5,7 @@ LLM 工厂模式
 from typing import List, Dict, Any, Optional, AsyncIterator
 from openai import AsyncOpenAI
 from abc import ABC, abstractmethod
+import httpx
 
 from app.config import settings
 from app.utils.logger import log
@@ -17,7 +18,12 @@ class BaseLLMProvider(ABC):
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        # 配置更长的超时时间，避免流式响应时超时
+        self.client = AsyncOpenAI(
+            api_key=api_key, 
+            base_url=base_url,
+            timeout=httpx.Timeout(120.0, connect=10.0)  # 总超时120秒，连接超时10秒
+        )
     
     @abstractmethod
     async def chat_completion(

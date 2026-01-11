@@ -97,13 +97,21 @@ export const useChatStore = defineStore('chat', () => {
     })
     
     try {
+      console.log('[SSE] 开始请求 Agent 流式对话')
       const response = await api.agentChatStream(paperId, {
         message,
         session_id: sessionId
       })
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorText = await response.text()
+        console.error('[SSE] HTTP 错误响应:', errorText)
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`)
+      }
+      
+      if (!response.body) {
+        console.error('[SSE] 响应体为空')
+        throw new Error('响应体为空')
       }
       
       const reader = response.body.getReader()
@@ -111,67 +119,96 @@ export const useChatStore = defineStore('chat', () => {
       let buffer = ''
       let contentBuffer = ''
       let sources = []
+      let eventCount = 0
+      
+      console.log('[SSE] 开始读取流数据')
       
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
         
-        buffer += decoder.decode(value, { stream: true })
+        if (done) {
+          console.log('[SSE] 流读取完成，共收到', eventCount, '个事件')
+          break
+        }
         
-        // 解析 SSE 事件
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // 保留未完成的行
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              const { type, content } = data
-              
-              agentStatus.value = type
-              
-              switch (type) {
-                case 'thinking':
-                  agentThinking.value.push({ type: 'thinking', content })
-                  // 更新消息中的 thinking
-                  sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
-                  break
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
+          
+          // 解析 SSE 事件 - 按 \n\n 分割事件
+          const events = buffer.split('\n\n')
+          buffer = events.pop() || '' // 保留未完成的事件
+          
+          for (const eventText of events) {
+            if (!eventText.trim()) {
+              console.log('[SSE] 跳过空事件')
+              continue
+            }
+            
+            // 查找 data: 行
+            const lines = eventText.split('\n')
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonStr = line.slice(6).trim()
+                  if (!jsonStr) {
+                    console.log('[SSE] 跳过空的data行')
+                    continue
+                  }
                   
-                case 'retrieval':
-                  agentThinking.value.push({ type: 'retrieval', content })
-                  sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
-                  break
+                  const data = JSON.parse(jsonStr)
+                  const { type, content } = data
+                  eventCount++
                   
-                case 'evaluation':
-                  agentThinking.value.push({ type: 'evaluation', content })
-                  sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
-                  break
+                  agentStatus.value = type
                   
-                case 'content':
-                  contentBuffer += content
-                  sessions.value[sessionId].messages[assistantMsgIndex].content = contentBuffer
-                  break
-                  
-                case 'sources':
-                  sources = content
-                  sessions.value[sessionId].messages[assistantMsgIndex].sources = sources
-                  break
-                  
-                case 'done':
-                  sessions.value[sessionId].messages[assistantMsgIndex].isStreaming = false
-                  agentStatus.value = ''
-                  break
-                  
-                case 'error':
-                  throw new Error(content)
-              }
-            } catch (e) {
-              if (e.message !== 'Unexpected end of JSON input') {
-                console.error('解析 SSE 事件失败:', e, line)
+                  switch (type) {
+                    case 'thinking':
+                      agentThinking.value.push({ type: 'thinking', content })
+                      sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
+                      break
+                      
+                    case 'retrieval':
+                      agentThinking.value.push({ type: 'retrieval', content })
+                      sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
+                      break
+                      
+                    case 'evaluation':
+                      agentThinking.value.push({ type: 'evaluation', content })
+                      sessions.value[sessionId].messages[assistantMsgIndex].thinking = [...agentThinking.value]
+                      break
+                      
+                    case 'content':
+                      contentBuffer += content
+                      sessions.value[sessionId].messages[assistantMsgIndex].content = contentBuffer
+                      break
+                      
+                    case 'sources':
+                      sources = content
+                      sessions.value[sessionId].messages[assistantMsgIndex].sources = sources
+                      break
+                      
+                    case 'done':
+                      sessions.value[sessionId].messages[assistantMsgIndex].isStreaming = false
+                      agentStatus.value = ''
+                      break
+                      
+                    case 'error':
+                      throw new Error(content)
+                  }
+                } catch (e) {
+                  console.error('[SSE] 解析事件失败:', e, '原始行:', line)
+                }
               }
             }
           }
         }
+      }
+      
+      // 确保流结束时设置状态
+      if (sessions.value[sessionId].messages[assistantMsgIndex].isStreaming) {
+        sessions.value[sessionId].messages[assistantMsgIndex].isStreaming = false
+        agentStatus.value = ''
       }
       
       return { content: contentBuffer, sources }

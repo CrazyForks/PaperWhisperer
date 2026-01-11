@@ -42,7 +42,8 @@ class PaperParser:
 
 请严格按照以下 JSON 格式返回结果，不要添加任何其他文字说明：
 {{
-    "title": "论文标题（如果找不到则返回 null）",
+    "title": "原始论文标题（如果找不到则返回 null）",
+    "title_cn": "中文标题（如果原标题不是中文，则翻译成中文；如果原标题已经是中文，则与 title 保持一致）",
     "authors": ["作者1", "作者2", "..."]（如果找不到则返回空数组 []），
     "abstract": "论文摘要内容（如果找不到则返回 null）",
     "keywords": ["关键词1", "关键词2", "..."]（如果找不到则返回空数组 []）
@@ -50,9 +51,10 @@ class PaperParser:
 
 注意：
 1. 标题通常出现在论文开头，可能是最大的标题
-2. 作者信息可能包含机构信息，注意提取完整
-3. 摘要通常在 Abstract 或"摘要"标题下
-4. 关键词通常在 Keywords 或"关键词"标题后
+2. title_cn 必须是中文标题，如果原标题是英文等非中文语言，请翻译成中文
+3. 作者信息可能包含机构信息，注意提取完整
+4. 摘要通常在 Abstract 或"摘要"标题下
+5. 关键词通常在 Keywords 或"关键词"标题后
 
 请直接返回 JSON，不要有任何前缀或后缀文字。"""
 
@@ -101,6 +103,7 @@ class PaperParser:
             # 确保返回的格式正确
             return {
                 "title": metadata.get("title"),
+                "title_cn": metadata.get("title_cn"),
                 "authors": metadata.get("authors", []) or [],
                 "abstract": metadata.get("abstract"),
                 "keywords": metadata.get("keywords", []) or []
@@ -126,6 +129,7 @@ class PaperParser:
         """
         metadata = {
             "title": None,
+            "title_cn": None,
             "authors": [],
             "abstract": None,
             "keywords": []
@@ -137,6 +141,8 @@ class PaperParser:
         for line in lines[:20]:  # 只检查前20行
             if line.startswith('# ') and not metadata["title"]:
                 metadata["title"] = line[2:].strip()
+                # 正则方法无法翻译，title_cn 保持与 title 相同
+                metadata["title_cn"] = metadata["title"]
                 break
         
         # 提取摘要（查找 Abstract 章节）
@@ -256,9 +262,13 @@ class PaperParser:
                 log.warning(f"LLM 提取元数据失败，回退到正则方法: {e}")
                 metadata_dict = PaperParser._extract_metadata_regex(markdown_content)
             
+            title = metadata_dict.get("title") or f"Paper {paper_id}"
+            title_cn = metadata_dict.get("title_cn") or title
+            
             metadata = PaperMetadata(
                 paper_id=paper_id,
-                title=metadata_dict.get("title") or f"Paper {paper_id}",
+                title=title,
+                title_cn=title_cn,
                 authors=metadata_dict.get("authors"),
                 abstract=metadata_dict.get("abstract"),
                 keywords=metadata_dict.get("keywords"),

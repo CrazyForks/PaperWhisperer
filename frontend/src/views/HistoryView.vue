@@ -75,7 +75,7 @@
           <div class="flex justify-between items-start gap-4">
             <div class="flex-1 min-w-0">
               <h2 class="font-heading text-lg font-bold text-base-content group-hover:text-primary transition-colors mb-2 line-clamp-2">
-                {{ paper.title }}
+                {{ paper.title_cn || paper.title }}
               </h2>
               
               <div v-if="paper.authors && paper.authors.length > 0" class="flex items-center gap-2 text-sm text-base-content/60 mb-3">
@@ -89,13 +89,26 @@
                 {{ paper.abstract }}
               </p>
               
-              <div class="flex items-center gap-4 text-xs text-base-content/50">
+              <div class="flex flex-wrap items-center gap-4 text-xs text-base-content/50">
                 <span class="flex items-center gap-1">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   {{ formatDate(paper.created_at) }}
                 </span>
+                <a 
+                  v-if="paper.source_url" 
+                  :href="paper.source_url" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  @click.stop
+                  class="flex items-center gap-1 text-primary hover:text-primary/80 hover:underline"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  原文链接
+                </a>
               </div>
             </div>
 
@@ -142,7 +155,7 @@
           </div>
           <h3 class="font-heading font-bold text-lg mb-2">确认删除</h3>
           <p class="text-sm text-base-content/70 mb-6">
-            确定要删除「{{ paperToDelete?.title }}」吗？此操作不可恢复。
+            确定要删除「{{ paperToDelete?.title_cn || paperToDelete?.title }}」吗？此操作不可恢复。
           </p>
         </div>
         <div class="flex gap-3">

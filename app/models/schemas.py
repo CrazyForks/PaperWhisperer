@@ -28,11 +28,13 @@ class PaperMetadata(BaseModel):
     """论文元数据"""
     paper_id: str
     title: Optional[str] = None
+    title_cn: Optional[str] = None  # 中文标题
     authors: Optional[List[str]] = None
     abstract: Optional[str] = None
     keywords: Optional[List[str]] = None
     publication_date: Optional[str] = None
     source: Optional[str] = None  # PDF file or URL
+    source_url: Optional[str] = None  # 原始解析 URL
     created_at: datetime = Field(default_factory=datetime.now)
 
 

@@ -167,6 +167,7 @@ async def agent_chat_with_paper(
     async def generate():
         """Agent 流式生成器"""
         try:
+            log.info(f"开始 Agent 流式对话: paper_id={paper_id}, question={request.message[:50]}...")
             async for event in agent_service.chat_stream(
                 paper_id=paper_id,
                 question=request.message,
@@ -178,10 +179,13 @@ async def agent_chat_with_paper(
                     "type": event.type,
                     "content": event.content
                 }
-                yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                event_str = f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                log.info(f"发送 SSE 事件: type={event.type}, content_length={len(str(event.content))}")
+                yield event_str
             
+            log.info("Agent 流式对话完成")
         except Exception as e:
-            log.error(f"Agent 对话失败: {e}")
+            log.error(f"Agent 对话失败: {e}", exc_info=True)
             error_event = {"type": "error", "content": str(e)}
             yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
     
@@ -192,6 +196,9 @@ async def agent_chat_with_paper(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
+            "Access-Control-Allow-Origin": "*",  # 确保 CORS
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
         }
     )
 

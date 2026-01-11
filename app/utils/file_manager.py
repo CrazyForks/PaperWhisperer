@@ -188,4 +188,43 @@ class FileManager:
         """检查文件大小是否符合限制"""
         max_size = (max_size_mb or settings.max_upload_size) * 1024 * 1024
         return file_size <= max_size
+    
+    @staticmethod
+    def delete_paper_files(paper_id: str) -> dict:
+        """
+        删除与论文相关的所有文件
+        
+        Args:
+            paper_id: 论文ID
+            
+        Returns:
+            删除结果统计
+        """
+        deleted_files = []
+        failed_files = []
+        
+        # 需要删除的文件列表
+        files_to_delete = [
+            settings.parsed_dir / f"{paper_id}.json",           # 解析结果
+            settings.upload_dir / f"{paper_id}.pdf",            # 上传的 PDF
+            settings.summaries_dir / f"{paper_id}_translation.json",  # 翻译结果
+            settings.summaries_dir / f"{paper_id}_summary.json",      # 摘要结果
+        ]
+        
+        for file_path in files_to_delete:
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+                    deleted_files.append(str(file_path))
+                    log.info(f"删除文件成功: {file_path}")
+            except Exception as e:
+                failed_files.append(str(file_path))
+                log.error(f"删除文件失败: {file_path}, error={e}")
+        
+        return {
+            "deleted_count": len(deleted_files),
+            "deleted_files": deleted_files,
+            "failed_count": len(failed_files),
+            "failed_files": failed_files
+        }
 

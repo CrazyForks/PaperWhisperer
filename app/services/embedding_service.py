@@ -4,6 +4,7 @@ Embedding 服务
 """
 from typing import List, Optional
 from openai import AsyncOpenAI
+import httpx
 
 from app.config import settings
 from app.utils.logger import log
@@ -28,9 +29,11 @@ class EmbeddingService:
         if not self.config["api_key"]:
             raise ValueError(f"{self.provider} API Key 未配置")
         
+        # 配置更长的超时时间，避免网络波动导致的超时
         self.client = AsyncOpenAI(
             api_key=self.config["api_key"],
-            base_url=self.config["base_url"]
+            base_url=self.config["base_url"],
+            timeout=httpx.Timeout(60.0, connect=10.0)  # 总超时60秒，连接超时10秒
         )
         
         log.info(f"初始化 Embedding 服务: {self.provider}, 模型: {self.model}")
