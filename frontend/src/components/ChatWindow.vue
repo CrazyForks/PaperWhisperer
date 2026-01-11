@@ -97,7 +97,7 @@
                     推理过程
                     <span v-if="message.isStreaming" class="loading loading-spinner loading-xs text-info"></span>
                   </summary>
-                  <div class="px-4 py-3 space-y-2 text-xs bg-base-200/30 max-h-48 overflow-y-auto">
+                  <div :ref="el => { if (message.isStreaming) thinkingContainer = el }" class="px-4 py-3 space-y-2 text-xs bg-base-200/30 max-h-48 overflow-y-auto">
                     <div v-for="(step, stepIdx) in message.thinking" :key="stepIdx" class="flex items-start gap-2">
                       <!-- 图标 -->
                       <span :class="getThinkingStepClass(step.type)">
@@ -194,6 +194,7 @@ const chatStore = useChatStore()
 const inputMessage = ref('')
 const loading = ref(false)
 const messagesContainer = ref(null)
+const thinkingContainer = ref(null)
 
 const messages = computed(() => {
   const sessionId = chatStore.currentSessionId
@@ -224,6 +225,7 @@ watch(() => chatStore.agentStatus, () => {
 watch(() => chatStore.agentThinking, () => {
   nextTick(() => {
     scrollToBottom()
+    scrollThinkingToBottom()
   })
 }, { deep: true })
 
@@ -265,6 +267,12 @@ function formatTime(timestamp) {
 function scrollToBottom() {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
+function scrollThinkingToBottom() {
+  if (thinkingContainer.value) {
+    thinkingContainer.value.scrollTop = thinkingContainer.value.scrollHeight
   }
 }
 
