@@ -90,7 +90,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePaperStore } from '../stores/paper'
 import PaperStructure from '../components/PaperStructure.vue'
@@ -103,7 +103,8 @@ const route = useRoute()
 const router = useRouter()
 const paperStore = usePaperStore()
 
-const paperId = ref(route.params.paperId)
+// 使用 computed 动态获取路由参数，确保切换论文时能响应变化
+const paperId = computed(() => route.params.paperId)
 const activeTab = ref('original')
 
 const tabs = [
@@ -113,7 +114,23 @@ const tabs = [
   { id: 'chat', label: '对话' }
 ]
 
+// 加载论文数据
+async function loadPaperData(id) {
+  if (id) {
+    await paperStore.loadPaper(id)
+  }
+}
+
 onMounted(async () => {
-  await paperStore.loadPaper(paperId.value)
+  await loadPaperData(paperId.value)
+})
+
+// 监听路由参数变化，切换论文时重新加载
+watch(paperId, async (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    // 切换论文时重置为原文标签
+    activeTab.value = 'original'
+    await loadPaperData(newId)
+  }
 })
 </script>

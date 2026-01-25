@@ -202,11 +202,39 @@ const messages = computed(() => {
   return msgs
 })
 
-onMounted(async () => {
-  if (!chatStore.currentSessionId) {
-    await chatStore.createSession(props.paperId)
+// 为当前论文初始化或获取会话
+async function initSessionForPaper(paperId) {
+  // 检查当前会话是否属于当前论文
+  const currentSession = chatStore.sessions[chatStore.currentSessionId]
+  if (currentSession && currentSession.paperId === paperId) {
+    // 当前会话就是这个论文的，无需创建新会话
+    return
   }
+  
+  // 查找是否已经存在这个论文的会话
+  const existingSessionId = Object.keys(chatStore.sessions).find(
+    sid => chatStore.sessions[sid].paperId === paperId
+  )
+  
+  if (existingSessionId) {
+    // 切换到已存在的会话
+    chatStore.currentSessionId = existingSessionId
+  } else {
+    // 创建新会话
+    await chatStore.createSession(paperId)
+  }
+}
+
+onMounted(async () => {
+  await initSessionForPaper(props.paperId)
 })
+
+// 监听 paperId 变化，切换论文时重新初始化会话
+watch(() => props.paperId, async (newPaperId, oldPaperId) => {
+  if (newPaperId && newPaperId !== oldPaperId) {
+    await initSessionForPaper(newPaperId)
+  }
+}, { immediate: false })
 
 watch(messages, () => {
   nextTick(() => {
