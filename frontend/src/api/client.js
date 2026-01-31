@@ -59,8 +59,15 @@ const api = {
     })
   },
 
-  parseUrl(url) {
-    return client.post('/parse_url', null, { params: { url } })
+  parseUrl(url, options = {}) {
+    const data = {
+      url,
+      is_ocr: options.is_ocr,
+      enable_formula: options.enable_formula,
+      enable_table: options.enable_table,
+      language: options.language
+    }
+    return client.post('/parse_url', data)
   },
 
   // 开始解析已上传的文件

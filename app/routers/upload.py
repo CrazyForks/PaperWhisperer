@@ -6,7 +6,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from typing import Optional
 import asyncio
 
-from app.models.schemas import UploadResponse, ParseStatusResponse, TaskStatus, PaperMetadata
+from app.models.schemas import UploadResponse, ParseStatusResponse, TaskStatus, PaperMetadata, ParseUrlRequest
 from app.services.mineru_client import mineru_client
 from app.services.paper_parser import paper_parser
 from app.services.vectorization_service import vectorization_service
@@ -20,7 +20,16 @@ router = APIRouter()
 task_status = {}
 
 
-async def process_paper_background(task_id: str, file_id: str, file_path, is_url: bool = False):
+async def process_paper_background(
+    task_id: str, 
+    file_id: str, 
+    file_path, 
+    is_url: bool = False,
+    is_ocr: Optional[bool] = None,
+    enable_formula: Optional[bool] = None,
+    enable_table: Optional[bool] = None,
+    language: Optional[str] = None
+):
     """后台任务：处理论文"""
     try:
         task_status[task_id] = {
@@ -35,9 +44,23 @@ async def process_paper_background(task_id: str, file_id: str, file_path, is_url
         log.info(f"开始解析论文: task_id={task_id}")
         
         if is_url:
-            mineru_result = await mineru_client.parse_pdf(url=file_path, paper_id=file_id)
+            mineru_result = await mineru_client.parse_pdf(
+                url=file_path, 
+                paper_id=file_id,
+                is_ocr=is_ocr,
+                enable_formula=enable_formula,
+                enable_table=enable_table,
+                language=language
+            )
         else:
-            mineru_result = await mineru_client.parse_pdf(file_path=file_path, paper_id=file_id)
+            mineru_result = await mineru_client.parse_pdf(
+                file_path=file_path, 
+                paper_id=file_id,
+                is_ocr=is_ocr,
+                enable_formula=enable_formula,
+                enable_table=enable_table,
+                language=language
+            )
         
         task_status[task_id]["progress"] = 50
         
@@ -175,12 +198,21 @@ async def start_parse(
 @router.post("/parse_url", response_model=UploadResponse)
 async def parse_url(
     background_tasks: BackgroundTasks,
-    url: str
+    request: ParseUrlRequest
 ):
     """
     通过 URL 解析论文（如 arXiv 链接）
+    
+    请求体参数:
+    - url: 论文 URL
+    - is_ocr: 是否启用 OCR (可选)
+    - enable_formula: 是否启用公式识别 (可选)
+    - enable_table: 是否启用表格识别 (可选)
+    - language: 文档语言 (可选)
     """
     import hashlib
+    
+    url = request.url
     
     # 生成任务ID
     task_id = hashlib.md5(url.encode()).hexdigest()
@@ -202,13 +234,17 @@ async def parse_url(
         "error": None
     }
     
-    # 后台处理
+    # 后台处理，传递 MinerU 参数
     background_tasks.add_task(
         process_paper_background,
         task_id=task_id,
         file_id=task_id,
         file_path=url,
-        is_url=True
+        is_url=True,
+        is_ocr=request.is_ocr,
+        enable_formula=request.enable_formula,
+        enable_table=request.enable_table,
+        language=request.language
     )
     
     log.info(f"URL 解析任务创建: url={url}, task_id={task_id}")

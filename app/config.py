@@ -55,6 +55,22 @@ class Settings(BaseSettings):
         default_factory=lambda: int(os.getenv("MINERU_MAX_FILE_SIZE", "10")),
         description="MinerU 直接上传文件的最大大小（MB），超过此大小建议使用 URL 方式"
     )
+    mineru_is_ocr: bool = Field(
+        default_factory=lambda: os.getenv("MINERU_IS_OCR", "False").lower() in ("true", "1", "yes"),
+        description="MinerU 是否启用 OCR 功能（默认 False）"
+    )
+    mineru_enable_formula: bool = Field(
+        default_factory=lambda: os.getenv("MINERU_ENABLE_FORMULA", "True").lower() in ("true", "1", "yes"),
+        description="MinerU 是否启用公式识别（默认 True）"
+    )
+    mineru_enable_table: bool = Field(
+        default_factory=lambda: os.getenv("MINERU_ENABLE_TABLE", "True").lower() in ("true", "1", "yes"),
+        description="MinerU 是否启用表格识别（默认 True）"
+    )
+    mineru_language: str = Field(
+        default_factory=lambda: os.getenv("MINERU_LANGUAGE", "ch"),
+        description="MinerU 文档语言（默认 ch）"
+    )
     
     # Milvus Configuration
     milvus_host: str = Field(

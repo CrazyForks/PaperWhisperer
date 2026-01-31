@@ -74,6 +74,15 @@ class ParseStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+class ParseUrlRequest(BaseModel):
+    """URL 解析请求"""
+    url: str
+    is_ocr: Optional[bool] = None  # 是否启用 OCR
+    enable_formula: Optional[bool] = None  # 是否启用公式识别
+    enable_table: Optional[bool] = None  # 是否启用表格识别
+    language: Optional[str] = None  # 文档语言
+
+
 # ========== 翻译相关模型 ==========
 
 class TranslationRequest(BaseModel):

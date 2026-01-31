@@ -27,15 +27,88 @@ class MinerUClient:
         }
         self.timeout = settings.mineru_timeout
         self.poll_interval = settings.mineru_poll_interval
+        # MinerU API 可选参数默认值
+        self.default_is_ocr = settings.mineru_is_ocr
+        self.default_enable_formula = settings.mineru_enable_formula
+        self.default_enable_table = settings.mineru_enable_table
+        self.default_language = settings.mineru_language
+    
+    async def _get_model_version(self, url: str) -> str:
+        """
+        根据URL的资源类型返回相应的model_version
+        
+        通过发送HEAD请求检查Content-Type来判断资源类型，
+        对于明确的文件扩展名则直接返回，避免额外请求。
+        
+        Args:
+            url: 资源URL
+            
+        Returns:
+            model_version: "vlm" 或 "MinerU-HTML"
+        """
+        from urllib.parse import urlparse
+        
+        # 解析URL获取路径
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+        
+        # 明确的非HTML文件扩展名，直接返回vlm
+        non_html_extensions = {
+            '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
+            '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp',
+            '.txt', '.rtf', '.odt', '.odp', '.ods'
+        }
+        
+        for ext in non_html_extensions:
+            if path.endswith(ext):
+                log.info(f"URL 扩展名为 {ext}，使用 vlm")
+                return "vlm"
+        
+        # HTML文件扩展名，直接返回MinerU-HTML
+        html_extensions = {'.html', '.htm'}
+        if any(path.endswith(ext) for ext in html_extensions):
+            log.info(f"URL 扩展名为 HTML，使用 MinerU-HTML")
+            return "MinerU-HTML"
+        
+        # 对于没有扩展名或无法识别的扩展名，发送HEAD请求检查Content-Type
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                log.info(f"发送 HEAD 请求检测 URL 内容类型: {url}")
+                response = await client.head(url, follow_redirects=True)
+                content_type = response.headers.get('content-type', '').lower()
+                
+                log.info(f"URL Content-Type: {content_type}")
+                
+                if 'text/html' in content_type or 'application/xhtml' in content_type:
+                    log.info(f"检测到 HTML 内容类型，使用 MinerU-HTML")
+                    return "MinerU-HTML"
+                else:
+                    log.info(f"非 HTML 内容类型，使用 vlm")
+                    return "vlm"
+        except Exception as e:
+            log.warning(f"无法检测 URL 的 Content-Type，默认使用 vlm: {e}")
+            return "vlm"
     
     @async_retry(max_retries=3, delay=2.0)
-    async def submit_task(self, url: Optional[str] = None, file_path: Optional[Path] = None) -> str:
+    async def submit_task(
+        self, 
+        url: Optional[str] = None, 
+        file_path: Optional[Path] = None,
+        is_ocr: Optional[bool] = None,
+        enable_formula: Optional[bool] = None,
+        enable_table: Optional[bool] = None,
+        language: Optional[str] = None
+    ) -> str:
         """
         提交解析任务
         
         Args:
             url: 论文 URL（如 arXiv 链接）
             file_path: 本地 PDF 文件路径
+            is_ocr: 是否启用 OCR 功能（默认 False）
+            enable_formula: 是否启用公式识别（默认 True）
+            enable_table: 是否启用表格识别（默认 True）
+            language: 指定文档语言（默认 "ch"）
             
         Returns:
             task_id
@@ -52,10 +125,17 @@ class MinerUClient:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 if url:
                     # 使用 URL 提交
+                    model_version = await self._get_model_version(url)
                     data = {
                         "url": url,
-                        "model_version": "vlm"
+                        "model_version": model_version,
+                        # 使用传入的参数，如果未传入则使用默认值
+                        "is_ocr": is_ocr if is_ocr is not None else self.default_is_ocr,
+                        "enable_formula": enable_formula if enable_formula is not None else self.default_enable_formula,
+                        "enable_table": enable_table if enable_table is not None else self.default_enable_table,
+                        "language": language if language is not None else self.default_language
                     }
+                    
                     log.info(f"提交 MinerU 任务: endpoint={endpoint}, data={data}")
                     response = await client.post(endpoint, headers=self.headers, json=data)
                 else:
@@ -65,11 +145,22 @@ class MinerUClient:
                         files = {'file': (file_path.name, f, 'application/pdf')}
                         # 文件上传需要不同的 header
                         upload_headers = {"Authorization": f"Bearer {self.token}"}
+                        
+                        # 构建表单数据，包含 model_version 和可选参数
+                        form_data = {
+                            "model_version": "vlm",
+                            # 使用传入的参数，如果未传入则使用默认值
+                            "is_ocr": str(is_ocr if is_ocr is not None else self.default_is_ocr).lower(),
+                            "enable_formula": str(enable_formula if enable_formula is not None else self.default_enable_formula).lower(),
+                            "enable_table": str(enable_table if enable_table is not None else self.default_enable_table).lower(),
+                            "language": language if language is not None else self.default_language
+                        }
+                        
                         response = await client.post(
                             endpoint,
                             headers=upload_headers,
                             files=files,
-                            data={"model_version": "vlm"}
+                            data=form_data
                         )
                 
                 response.raise_for_status()
@@ -295,7 +386,16 @@ class MinerUClient:
             log.error(f"下载 MinerU 结果异常: {e}")
             raise
     
-    async def parse_pdf(self, url: Optional[str] = None, file_path: Optional[Path] = None, paper_id: Optional[str] = None) -> Dict[str, Any]:
+    async def parse_pdf(
+        self, 
+        url: Optional[str] = None, 
+        file_path: Optional[Path] = None, 
+        paper_id: Optional[str] = None,
+        is_ocr: Optional[bool] = None,
+        enable_formula: Optional[bool] = None,
+        enable_table: Optional[bool] = None,
+        language: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         完整的 PDF 解析流程（提交 -> 等待 -> 获取结果）
         
@@ -303,14 +403,25 @@ class MinerUClient:
             url: 论文 URL
             file_path: 本地文件路径
             paper_id: 论文ID，用于保存图片到对应目录
+            is_ocr: 是否启用 OCR 功能（默认 False）
+            enable_formula: 是否启用公式识别（默认 True）
+            enable_table: 是否启用表格识别（默认 True）
+            language: 指定文档语言（默认 "ch"）
             
         Returns:
             解析结果
         """
         log.info(f"开始解析 PDF: url={url}, file={file_path}, paper_id={paper_id}")
         
-        # 提交任务
-        task_id = await self.submit_task(url=url, file_path=file_path)
+        # 提交任务，传递所有可选参数
+        task_id = await self.submit_task(
+            url=url, 
+            file_path=file_path,
+            is_ocr=is_ocr,
+            enable_formula=enable_formula,
+            enable_table=enable_table,
+            language=language
+        )
         
         # 等待完成，传入 paper_id 以保存图片
         result = await self.wait_for_completion(task_id, paper_id=paper_id)
